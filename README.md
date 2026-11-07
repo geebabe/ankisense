@@ -64,6 +64,16 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=/Applications/Anki.app/Contents/Resources/a
 
 ---
 
+## Documentation & Architecture
+
+For in-depth architectural details, completed components, and future roadmap, see:
+- [`docs/CONTEXT.md`](docs/CONTEXT.md) — Comprehensive architecture, implementation log, and future roadmap.
+- [`docs/SPEC.md`](docs/SPEC.md) — Product specification and non-negotiable requirements.
+- [`docs/TASKS.md`](docs/TASKS.md) — Milestone checklist.
+- [`docs/AGENTS.md`](docs/AGENTS.md) — Agent development instructions and guidelines.
+
+---
+
 ## Manual Anki Desktop & Sync Smoke-Test Checklist
 
 Because live GUI audio playback and personal AnkiWeb account synchronization require interactive user verification in Anki Desktop, complete the following manual checks after restarting Anki:

@@ -20,5 +20,4 @@ build/
 # Anki runtime user files
 addon/meta.json
 addon/user_files/
-
-docs/
+docs
