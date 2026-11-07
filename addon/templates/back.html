@@ -1,0 +1,54 @@
+<div class="ai-vocab-card back-side">
+  <div class="expression-header">
+    <div class="title-row">
+      <h1 class="expression">{{Expression}}</h1>
+      {{#PartOfSpeech}}
+      <span class="pos-badge">{{PartOfSpeech}}</span>
+      {{/PartOfSpeech}}
+    </div>
+    {{#IPA}}
+    <div class="ipa">{{IPA}}</div>
+    {{/IPA}}
+    <div class="tts-control">
+      {{#Audio}}{{Audio}}{{/Audio}}{{^Audio}}{{tts en_US:Expression}}{{/Audio}}
+    </div>
+  </div>
+
+  <div class="type-comparison">
+    {{type:Expression}}
+  </div>
+
+  <hr id="answer" class="divider">
+
+  {{#Sense}}
+  <div class="sense-banner">
+    <span class="sense-label">Sense:</span> {{Sense}}
+  </div>
+  {{/Sense}}
+
+  <div class="meanings-box">
+    <div class="definition-en">{{DefinitionEN}}</div>
+    <div class="meaning-vi">{{MeaningVI}}</div>
+  </div>
+
+  {{#Image}}
+  <div class="vocab-image-container">
+    {{Image}}
+  </div>
+  {{/Image}}
+
+  <div class="examples-section">
+    <div class="examples-title">Examples</div>
+    <ol class="examples-list">
+      {{#Example1}}<li>{{Example1}}</li>{{/Example1}}
+      {{#Example2}}<li>{{Example2}}</li>{{/Example2}}
+      {{#Example3}}<li>{{Example3}}</li>{{/Example3}}
+      {{#Example4}}<li>{{Example4}}</li>{{/Example4}}
+      {{#Example5}}<li>{{Example5}}</li>{{/Example5}}
+    </ol>
+  </div>
+
+  {{#Source}}
+  <div class="source-footer">{{Source}}</div>
+  {{/Source}}
+</div>

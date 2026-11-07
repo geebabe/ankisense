@@ -1,0 +1,24 @@
+# Secrets and environment variables
+.env
+.env.*
+!.env.example
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Distribution / build artifacts
+dist/
+build/
+*.ankiaddon
+
+# macOS
+.DS_Store
+
+# Anki runtime user files
+addon/meta.json
+addon/user_files/
+
+docs/

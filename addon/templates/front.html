@@ -1,0 +1,71 @@
+<div class="ai-vocab-card front-side">
+  <div class="prompt-header">
+    <div class="hint-row">
+      <span id="vocab-hint-raw" style="display:none;">{{Expression}}</span>
+      <span id="vocab-hint-display" class="typing-hint"></span>
+      {{#PartOfSpeech}}
+      <span class="pos-badge">{{PartOfSpeech}}</span>
+      {{/PartOfSpeech}}
+    </div>
+  </div>
+
+  <div class="meanings-box">
+    <div class="definition-en">{{DefinitionEN}}</div>
+    <div class="meaning-vi">{{MeaningVI}}</div>
+  </div>
+
+  {{#Sense}}
+  <div class="sense-banner">
+    <span class="sense-label">Sense:</span> {{Sense}}
+  </div>
+  {{/Sense}}
+
+  <div class="typing-box">
+    <div class="typing-label">Type the vocabulary:</div>
+    {{type:Expression}}
+  </div>
+</div>
+
+<script>
+(function() {
+  var rawEl = document.getElementById("vocab-hint-raw");
+  var outEl = document.getElementById("vocab-hint-display");
+  if (!rawEl || !outEl) return;
+  var expr = (rawEl.textContent || "").trim();
+  rawEl.textContent = "";
+  if (!expr) return;
+
+  function maskToken(word) {
+    if (!word) return "";
+    var prefix = "", suffix = "", core = word;
+    while (core.length > 0 && !/[a-zA-Z0-9]/.test(core[0])) {
+      prefix += core[0];
+      core = core.slice(1);
+    }
+    while (core.length > 0 && !/[a-zA-Z0-9]/.test(core[core.length - 1])) {
+      suffix = core[core.length - 1] + suffix;
+      core = core.slice(0, -1);
+    }
+    if (!core) return word;
+    if (core.length === 1) return prefix + core + suffix;
+    if (core.length === 2) return prefix + core[0] + "_" + suffix;
+    var underscores = new Array(core.length - 1).join("_");
+    return prefix + core[0] + underscores + core[core.length - 1] + suffix;
+  }
+
+  var words = expr.split(/\s+/);
+  var masked = [];
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i];
+    if (w.indexOf("-") !== -1) {
+      var parts = w.split("-");
+      var mp = [];
+      for (var j = 0; j < parts.length; j++) mp.push(maskToken(parts[j]));
+      masked.push(mp.join("-"));
+    } else {
+      masked.push(maskToken(w));
+    }
+  }
+  outEl.textContent = masked.join("   ");
+})();
+</script>

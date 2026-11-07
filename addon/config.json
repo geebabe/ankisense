@@ -1,0 +1,9 @@
+{
+  "llm_base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "llm_model": "gemini-3.5-flash-lite",
+  "default_deck": "Default",
+  "default_tts_locale": "en_US",
+  "llm_api_key": "",
+  "pexels_api_key": "",
+  "pixabay_api_key": ""
+}
