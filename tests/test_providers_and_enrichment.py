@@ -217,6 +217,26 @@ class ProvidersAndEnrichmentTests(unittest.TestCase):
         )
         self.assertLess(len(cancel_after_5), 50)
 
+    def test_llm_retries_on_rate_limit_429(self) -> None:
+        import unittest.mock
+        attempts = {"count": 0}
+
+        def post_with_429_then_success(url: str, **kw: Any) -> DummyResponse:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return DummyResponse(429, {"error": "Rate limit"})
+            payload = make_valid_llm_payload("verdict", "n", "decision of a jury")
+            return DummyResponse(200, {"choices": [{"message": {"content": json.dumps(payload)}}]})
+
+        client = OpenAICompatibleLLMClient(
+            api_key="k",
+            http_client=MockHttpClient(post_handler=post_with_429_then_success),
+        )
+        with unittest.mock.patch("time.sleep", return_value=None):
+            result = client.enrich_item(parse_single_entry("verdict (n)"))
+        self.assertEqual(result["expression"], "verdict")
+        self.assertEqual(attempts["count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

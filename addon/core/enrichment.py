@@ -161,16 +161,29 @@ class EnrichmentService:
         progress_cb: ProgressCallback | None = None,
         is_cancelled: CancelCheck | None = None,
     ) -> list[EnrichedItem]:
-        """Enrich a list of ParsedItems sequentially with progress and cancellation checks."""
+        """Enrich a list of ParsedItems sequentially with progress, remaining ETA, and cancellation checks."""
+        import time
+
         results: list[EnrichedItem] = []
         selected_items = [it for it in items if it.selected]
         total = len(selected_items)
+        start_time = time.time()
 
         for idx, item in enumerate(selected_items):
             if is_cancelled and is_cancelled():
                 break
+            eta_str = ""
+            if idx > 0:
+                elapsed = time.time() - start_time
+                avg_sec = elapsed / idx
+                rem_sec = int(avg_sec * (total - idx))
+                if rem_sec >= 60:
+                    eta_str = f" • ~{rem_sec // 60}m {rem_sec % 60:02d}s remaining"
+                else:
+                    eta_str = f" • ~{rem_sec}s remaining"
+
             if progress_cb:
-                progress_cb(idx, total, f"Enriching '{item.expression}' ({idx + 1}/{total})...")
+                progress_cb(idx, total, f"Enriching '{item.expression}' ({idx + 1}/{total}){eta_str}...")
             enriched = self.enrich_single(item, locale=locale, max_images=max_images)
             results.append(enriched)
 

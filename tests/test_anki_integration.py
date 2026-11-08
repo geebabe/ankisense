@@ -420,6 +420,23 @@ class RealAnkiVerticalSliceTests(unittest.TestCase):
         dlg._on_parse_clicked()
         self.assertEqual(len(dlg.parsed_items), 5)
         self.assertEqual(dlg.parse_table.rowCount(), 5)
+        self.assertTrue(dlg.generate_btn.isEnabled())
+        self.assertIn("5/5", dlg.generate_btn.text())
+
+        # Test batch selection controls for 100+ items
+        dlg._deselect_all_parsed()
+        self.assertFalse(dlg.generate_btn.isEnabled())
+        self.assertIn("0/5", dlg.generate_btn.text())
+
+        dlg._select_all_parsed()
+        self.assertTrue(dlg.generate_btn.isEnabled())
+        self.assertIn("5/5", dlg.generate_btn.text())
+
+        # Test wizard tab switching and step indicators
+        self.assertIn("Step 1", dlg.step1_pill.text())
+        dlg.tabs.setCurrentIndex(1)
+        self.assertIn("Step 2", dlg.step2_pill.text())
+        self.assertIsNotNone(dlg.step2_import_btn)
         dlg.close()
 
 

@@ -93,15 +93,28 @@ class EnrichmentWorker(QThread):
         self._cancelled = True
 
     def run(self) -> None:
+        import time
+
         results: list[tuple[int, EnrichedItem]] = []
         total = len(self._items)
+        start_time = time.time()
         for step_idx, (orig_idx, parsed_item) in enumerate(self._items):
             if self._cancelled:
                 break
+            eta_str = ""
+            if step_idx > 0:
+                elapsed = time.time() - start_time
+                avg_sec = elapsed / step_idx
+                rem_sec = int(avg_sec * (total - step_idx))
+                if rem_sec >= 60:
+                    eta_str = f" • ~{rem_sec // 60}m {rem_sec % 60:02d}s remaining"
+                else:
+                    eta_str = f" • ~{rem_sec}s remaining"
+
             self.progress_changed.emit(
                 step_idx,
                 total,
-                f"Generating '{parsed_item.expression}' ({step_idx + 1}/{total})...",
+                f"Generating '{parsed_item.expression}' ({step_idx + 1}/{total}){eta_str}...",
             )
             enriched = self._service.enrich_single(parsed_item, locale=self._locale)
             # Prefetch small thumbnails in background so UI preview is snappy
@@ -251,15 +264,40 @@ class VocabImporterDialog(QDialog):
 
         root.addLayout(top_bar)
 
+        # Step workflow breadcrumbs
+        step_header_widget = QWidget()
+        step_header_layout = QHBoxLayout(step_header_widget)
+        step_header_layout.setContentsMargins(4, 2, 4, 6)
+
+        self.step1_pill = QLabel("  1️⃣ Step 1: Input & Parse  ")
+        self.step2_pill = QLabel("  2️⃣ Step 2: Review & Customise  ")
+        self.step3_pill = QLabel("  3️⃣ Step 3: Import to Deck  ")
+
+        arrow_style = "font-weight: bold; color: #94a3b8; font-size: 13px;"
+        lbl_arrow1 = QLabel("➔")
+        lbl_arrow1.setStyleSheet(arrow_style)
+        lbl_arrow2 = QLabel("➔")
+        lbl_arrow2.setStyleSheet(arrow_style)
+
+        step_header_layout.addWidget(self.step1_pill)
+        step_header_layout.addWidget(lbl_arrow1)
+        step_header_layout.addWidget(self.step2_pill)
+        step_header_layout.addWidget(lbl_arrow2)
+        step_header_layout.addWidget(self.step3_pill)
+        step_header_layout.addStretch()
+
+        root.addWidget(step_header_widget)
+
         # Tabs: Step 1 (Input & Parse) and Step 2 (Review, Images & Card Preview)
         self.tabs = QTabWidget()
         self._build_step1_tab()
         self._build_step2_tab()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         root.addWidget(self.tabs, stretch=1)
 
         # Bottom status and action bar
         bottom_bar = QHBoxLayout()
-        self.status_label = QLabel("Paste vocabulary or load a .txt file, then click 'Parse'.")
+        self.status_label = QLabel("Paste vocabulary or load a .txt file, then click '1. Parse Vocabulary'.")
         bottom_bar.addWidget(self.status_label, stretch=1)
 
         self.progress_bar = QProgressBar()
@@ -277,16 +315,31 @@ class VocabImporterDialog(QDialog):
         self.retry_failed_btn.clicked.connect(self._retry_failed_items)
         bottom_bar.addWidget(self.retry_failed_btn)
 
-        self.import_btn = QPushButton("Import to Anki")
+        self.import_btn = QPushButton("🚀 Import Ready Cards to Anki")
         self.import_btn.setEnabled(False)
+        self.import_btn.setStyleSheet(
+            "QPushButton { background-color: #16a34a; color: #ffffff; font-weight: bold; font-size: 13px; "
+            "padding: 7px 18px; border-radius: 6px; border: 1px solid #15803d; } "
+            "QPushButton:hover { background-color: #15803d; } "
+            "QPushButton:disabled { background-color: #cbd5e1; color: #94a3b8; border: 1px solid #cbd5e1; }"
+        )
         self.import_btn.clicked.connect(self._import_to_anki)
         bottom_bar.addWidget(self.import_btn)
 
         root.addLayout(bottom_bar)
+        self._update_step_pills()
 
     def _build_step1_tab(self) -> None:
         tab1 = QWidget()
         layout = QVBoxLayout(tab1)
+
+        # Guide banner at top of Step 1
+        self.step1_banner = QLabel("📌 Step 1: Paste vocabulary below or load a .txt file, then click '1. Parse Vocabulary'.")
+        self.step1_banner.setStyleSheet(
+            "background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; "
+            "border-radius: 6px; padding: 7px 12px; font-weight: 500; font-size: 12.5px;"
+        )
+        layout.addWidget(self.step1_banner)
 
         input_header = QHBoxLayout()
         input_header.addWidget(
@@ -312,8 +365,23 @@ class VocabImporterDialog(QDialog):
 
         parse_bar = QHBoxLayout()
         self.parse_btn = QPushButton("1. Parse Vocabulary")
+        self.parse_btn.setStyleSheet(
+            "QPushButton { background-color: #0284c7; color: white; font-weight: bold; font-size: 13px; "
+            "padding: 7px 16px; border-radius: 6px; border: 1px solid #0369a1; } "
+            "QPushButton:hover { background-color: #0369a1; }"
+        )
         self.parse_btn.clicked.connect(self._on_parse_clicked)
         parse_bar.addWidget(self.parse_btn)
+
+        self.btn_select_all = QPushButton("Select All")
+        self.btn_select_all.setToolTip("Select all parsed rows for enrichment")
+        self.btn_select_all.clicked.connect(self._select_all_parsed)
+        parse_bar.addWidget(self.btn_select_all)
+
+        self.btn_deselect_all = QPushButton("Deselect All")
+        self.btn_deselect_all.setToolTip("Deselect all parsed rows")
+        self.btn_deselect_all.clicked.connect(self._deselect_all_parsed)
+        parse_bar.addWidget(self.btn_deselect_all)
 
         self.merge_dups_btn = QPushButton("Merge Same-Sense Duplicates")
         self.merge_dups_btn.setEnabled(False)
@@ -321,8 +389,14 @@ class VocabImporterDialog(QDialog):
         parse_bar.addWidget(self.merge_dups_btn)
 
         parse_bar.addStretch()
-        self.generate_btn = QPushButton("2. Generate && Enrich Selected →")
+        self.generate_btn = QPushButton("✨ 2. Generate && Enrich Selected (0) ➔")
         self.generate_btn.setEnabled(False)
+        self.generate_btn.setStyleSheet(
+            "QPushButton { background-color: #2563eb; color: #ffffff; font-weight: bold; font-size: 13px; "
+            "padding: 8px 20px; border-radius: 6px; border: 1px solid #1d4ed8; } "
+            "QPushButton:hover { background-color: #1d4ed8; } "
+            "QPushButton:disabled { background-color: #cbd5e1; color: #94a3b8; border: 1px solid #cbd5e1; }"
+        )
         self.generate_btn.clicked.connect(self._on_generate_clicked)
         parse_bar.addWidget(self.generate_btn)
         layout.addLayout(parse_bar)
@@ -346,6 +420,36 @@ class VocabImporterDialog(QDialog):
     def _build_step2_tab(self) -> None:
         tab2 = QWidget()
         layout = QVBoxLayout(tab2)
+
+        # Step 2 header & prominent Next action bar
+        step2_header = QHBoxLayout()
+        self.btn_back_to_step1 = QPushButton("← Back to Step 1 (Input)")
+        self.btn_back_to_step1.setStyleSheet(
+            "QPushButton { background-color: #f1f5f9; color: #334155; font-weight: 600; font-size: 12.5px; "
+            "padding: 6px 12px; border-radius: 6px; border: 1px solid #cbd5e1; } "
+            "QPushButton:hover { background-color: #e2e8f0; }"
+        )
+        self.btn_back_to_step1.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
+        step2_header.addWidget(self.btn_back_to_step1)
+
+        self.step2_guide_banner = QLabel("👉 Step 2 of 2: Click cards on the left to review & pick photos. When ready, click:")
+        self.step2_guide_banner.setStyleSheet(
+            "background-color: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; "
+            "border-radius: 6px; padding: 7px 12px; font-weight: 600; font-size: 13px;"
+        )
+        step2_header.addWidget(self.step2_guide_banner, stretch=1)
+
+        self.step2_import_btn = QPushButton("🚀 Import Ready Cards to Anki ➔")
+        self.step2_import_btn.setStyleSheet(
+            "QPushButton { background-color: #16a34a; color: #ffffff; font-weight: bold; font-size: 13px; "
+            "padding: 8px 20px; border-radius: 6px; border: 1px solid #15803d; } "
+            "QPushButton:hover { background-color: #15803d; } "
+            "QPushButton:disabled { background-color: #cbd5e1; color: #94a3b8; border: 1px solid #cbd5e1; }"
+        )
+        self.step2_import_btn.setEnabled(False)
+        self.step2_import_btn.clicked.connect(self._import_to_anki)
+        step2_header.addWidget(self.step2_import_btn)
+        layout.addLayout(step2_header)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -548,12 +652,84 @@ class VocabImporterDialog(QDialog):
         count = len(self.parsed_items)
         conflicts = sum(1 for it in self.parsed_items if it.review_state == ReviewState.CONFLICT_FLAGGED.value)
         reviews = sum(1 for it in self.parsed_items if it.review_state == ReviewState.NEEDS_REVIEW.value)
-        self.generate_btn.setEnabled(count > 0)
         self.merge_dups_btn.setEnabled(count > 1)
-        self.status_label.setText(
-            f"Parsed {count} item(s). {conflicts} conflict(s), {reviews} needing sense review. "
-            "Edit cells directly if needed, then click '2. Generate & Enrich Selected'."
+        self._update_generate_btn_label()
+
+        if count == 0:
+            self.step1_banner.setText("⚠️ Step 1: No valid vocabulary found. Please paste words or load a .txt file above.")
+            self.status_label.setText("No items parsed.")
+        else:
+            self.step1_banner.setText(
+                f"✅ Step 1 Complete: Parsed {count} item(s) ({conflicts} conflicts, {reviews} need review). "
+                "Check/edit rows in table below, then click the blue '2. Generate & Enrich Selected' button ➔"
+            )
+            self.status_label.setText(
+                f"Parsed {count} item(s). Click '2. Generate & Enrich Selected' to generate flashcard content."
+            )
+
+    def _update_step_pills(self) -> None:
+        current_tab = self.tabs.currentIndex()
+        active_style = (
+            "background-color: #2563eb; color: #ffffff; font-weight: bold; "
+            "font-size: 12px; padding: 4px 12px; border-radius: 12px;"
         )
+        completed_style = (
+            "background-color: #ecfdf5; color: #047857; font-weight: 600; "
+            "font-size: 12px; padding: 4px 12px; border-radius: 12px; border: 1px solid #a7f3d0;"
+        )
+        inactive_style = (
+            "background-color: #f1f5f9; color: #64748b; font-weight: 500; "
+            "font-size: 12px; padding: 4px 12px; border-radius: 12px;"
+        )
+        ready_cta_style = (
+            "background-color: #16a34a; color: #ffffff; font-weight: bold; "
+            "font-size: 12px; padding: 4px 12px; border-radius: 12px;"
+        )
+
+        has_enriched = bool(self.enriched_items)
+        if current_tab == 0:
+            self.step1_pill.setStyleSheet(active_style)
+            self.step2_pill.setStyleSheet(inactive_style)
+            self.step3_pill.setStyleSheet(inactive_style)
+        else:
+            self.step1_pill.setStyleSheet(completed_style)
+            self.step2_pill.setStyleSheet(active_style)
+            self.step3_pill.setStyleSheet(ready_cta_style if has_enriched else inactive_style)
+
+    def _on_tab_changed(self, _idx: int) -> None:
+        self._update_step_pills()
+
+    def _update_generate_btn_label(self) -> None:
+        selected_count = sum(1 for it in self.parsed_items if it.selected)
+        total_count = len(self.parsed_items)
+        if total_count == 0:
+            self.generate_btn.setText("✨ 2. Generate && Enrich Selected (0) ➔")
+            self.generate_btn.setEnabled(False)
+        else:
+            self.generate_btn.setText(f"✨ 2. Generate && Enrich Selected ({selected_count}/{total_count}) ➔")
+            self.generate_btn.setEnabled(selected_count > 0)
+
+    def _select_all_parsed(self) -> None:
+        self.parse_table.blockSignals(True)
+        for row in range(self.parse_table.rowCount()):
+            item = self.parse_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked)
+        for it in self.parsed_items:
+            it.selected = True
+        self.parse_table.blockSignals(False)
+        self._update_generate_btn_label()
+
+    def _deselect_all_parsed(self) -> None:
+        self.parse_table.blockSignals(True)
+        for row in range(self.parse_table.rowCount()):
+            item = self.parse_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Unchecked)
+        for it in self.parsed_items:
+            it.selected = False
+        self.parse_table.blockSignals(False)
+        self._update_generate_btn_label()
 
     def _populate_parse_table(self) -> None:
         self.parse_table.blockSignals(True)
@@ -582,6 +758,7 @@ class VocabImporterDialog(QDialog):
             self.parse_table.setItem(row, 5, status_item)
 
         self.parse_table.blockSignals(False)
+        self._update_generate_btn_label()
 
     def _on_parse_table_edited(self, table_item: QTableWidgetItem) -> None:
         row = table_item.row()
@@ -591,6 +768,7 @@ class VocabImporterDialog(QDialog):
         parsed = self.parsed_items[row]
         if col == 0:
             parsed.selected = table_item.checkState() == Qt.CheckState.Checked
+            self._update_generate_btn_label()
         elif col == 1:
             parsed.expression = table_item.text().strip()
             parsed.classification = classify_expression(parsed.expression, parsed.part_of_speech)
@@ -609,6 +787,7 @@ class VocabImporterDialog(QDialog):
         self.parsed_items = merge_confirmed_duplicates(self.parsed_items)
         after = len(self.parsed_items)
         self._populate_parse_table()
+        self._update_generate_btn_label()
         self.status_label.setText(f"Merged {before - after} duplicate same-sense row(s) ({after} remaining).")
 
     def _build_enrichment_service(self) -> tuple[EnrichmentService, MediaPersistenceService]:
@@ -682,6 +861,7 @@ class VocabImporterDialog(QDialog):
         self.parse_btn.setEnabled(False)
         self.generate_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
+        self.step2_import_btn.setEnabled(False)
         self.retry_failed_btn.setVisible(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(len(pairs))
@@ -738,10 +918,22 @@ class VocabImporterDialog(QDialog):
         failed = sum(1 for it in self.enriched_items if it.error_message)
         succeeded = len(self.enriched_items) - failed
         self.retry_failed_btn.setVisible(failed > 0)
-        self.import_btn.setEnabled(succeeded > 0)
+        has_ready = succeeded > 0
+        self.import_btn.setEnabled(has_ready)
+        self.step2_import_btn.setEnabled(has_ready)
+
+        import_text = f"🚀 Import {succeeded} Ready Cards to Anki ➔" if has_ready else "Import to Anki"
+        self.import_btn.setText(import_text)
+        self.step2_import_btn.setText(import_text)
+
+        self.step2_guide_banner.setText(
+            f"👉 Step 2 of 2: {succeeded} card(s) ready for import ({failed} failed). "
+            "Review definitions or pick photos on the left, then click '🚀 Import Ready Cards to Anki' ➔"
+        )
         self.status_label.setText(
             f"Enrichment complete: {succeeded} ready, {failed} failed. Review cards and click 'Import to Anki'."
         )
+        self._update_step_pills()
 
     def _cancel_background_work(self) -> None:
         if self._worker and self._worker.isRunning():
@@ -982,6 +1174,7 @@ class VocabImporterDialog(QDialog):
         ]
         if needs_download:
             self.import_btn.setEnabled(False)
+            self.step2_import_btn.setEnabled(False)
             self.progress_bar.setVisible(True)
             self.progress_bar.setMaximum(len(needs_download))
             self.progress_bar.setValue(0)
@@ -1000,6 +1193,7 @@ class VocabImporterDialog(QDialog):
         self.cancel_btn.setVisible(False)
         if cancelled:
             self.import_btn.setEnabled(True)
+            self.step2_import_btn.setEnabled(True)
             self.status_label.setText("Import cancelled before writing to Anki collection.")
             return
         self._execute_collection_import()
@@ -1010,6 +1204,7 @@ class VocabImporterDialog(QDialog):
         policy = str(self.dup_policy_combo.currentData() or DuplicatePolicy.SKIP.value)
 
         self.import_btn.setEnabled(False)
+        self.step2_import_btn.setEnabled(False)
         self.status_label.setText(f"Importing notes and saving media into '{deck_name}'...")
 
         try:
@@ -1024,10 +1219,12 @@ class VocabImporterDialog(QDialog):
                 self._mw.reset()
         except Exception as exc:
             self.import_btn.setEnabled(True)
+            self.step2_import_btn.setEnabled(True)
             QMessageBox.critical(self, "Import Error", f"Failed to import notes:\n{exc}")
             return
 
         self.import_btn.setEnabled(True)
+        self.step2_import_btn.setEnabled(True)
         refresh_deck_duplicate_flags(self._mw.col, deck_name, self.enriched_items)
         self._refresh_enriched_list_labels()
 

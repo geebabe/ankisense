@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Protocol
 import requests
 
@@ -164,34 +165,39 @@ class OpenAICompatibleLLMClient:
 
         for model_name in candidate_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
-            try:
-                resp = self._http.post(url, headers=headers, json=body, timeout=self.timeout)
-            except Exception as exc:
-                last_error = f"Network error contacting Google Gemini ({model_name}): {exc}"
-                continue
+            for retry_attempt in range(2):
+                try:
+                    resp = self._http.post(url, headers=headers, json=body, timeout=self.timeout)
+                except Exception as exc:
+                    last_error = f"Network error contacting Google Gemini ({model_name}): {exc}"
+                    continue
 
-            status = getattr(resp, "status_code", 200)
-            if status in (400, 401, 403):
-                raise LLMProviderError(
-                    f"Google Gemini authentication/request error (HTTP {status}). Please verify your GOOGLE_API_KEY."
-                )
-            if status in (404, 503):
-                # Model unavailable or experiencing temporary demand spike -> try next fallback model
-                last_error = f"Model {model_name} returned HTTP {status}"
-                continue
-            if status == 429:
-                raise LLMProviderError("Google Gemini rate limit exceeded (HTTP 429). Please wait and retry.")
-            if status >= 400:
-                raise LLMProviderError(f"Google Gemini returned HTTP {status}.")
+                status = getattr(resp, "status_code", 200)
+                if status in (400, 401, 403):
+                    raise LLMProviderError(
+                        f"Google Gemini authentication/request error (HTTP {status}). Please verify your GOOGLE_API_KEY."
+                    )
+                if status in (404, 503):
+                    # Model unavailable or experiencing temporary demand spike -> try next fallback model
+                    last_error = f"Model {model_name} returned HTTP {status}"
+                    break
+                if status == 429:
+                    if retry_attempt == 0:
+                        # Short backoff on free-tier RPM limit before retrying
+                        time.sleep(2.5)
+                        continue
+                    raise LLMProviderError("Google Gemini rate limit exceeded (HTTP 429). Please wait a moment and retry.")
+                if status >= 400:
+                    raise LLMProviderError(f"Google Gemini returned HTTP {status}.")
 
-            try:
-                data = resp.json()
-                parts = data["candidates"][0]["content"]["parts"]
-                for part in parts:
-                    if isinstance(part, dict) and "text" in part and part["text"].strip():
-                        return str(part["text"])
-            except Exception as exc:
-                raise LLMProviderError(f"Unexpected response structure from Google Gemini: {exc}") from exc
+                try:
+                    data = resp.json()
+                    parts = data["candidates"][0]["content"]["parts"]
+                    for part in parts:
+                        if isinstance(part, dict) and "text" in part and part["text"].strip():
+                            return str(part["text"])
+                except Exception as exc:
+                    raise LLMProviderError(f"Unexpected response structure from Google Gemini: {exc}") from exc
 
         raise LLMProviderError(last_error or "Google Gemini request failed across fallback models.")
 
@@ -212,21 +218,25 @@ class OpenAICompatibleLLMClient:
             "response_format": {"type": "json_object"},
         }
 
-        try:
-            resp = self._http.post(url, headers=headers, json=body, timeout=self.timeout)
-        except Exception as exc:
-            raise LLMProviderError(f"Network error contacting LLM endpoint: {exc}") from exc
+        for retry_attempt in range(2):
+            try:
+                resp = self._http.post(url, headers=headers, json=body, timeout=self.timeout)
+            except Exception as exc:
+                raise LLMProviderError(f"Network error contacting LLM endpoint: {exc}") from exc
 
-        status_code = getattr(resp, "status_code", 200)
-        if status_code == 401:
-            raise LLMProviderError("LLM authentication failed (HTTP 401). Please verify your API key.")
-        if status_code == 429:
-            raise LLMProviderError("LLM rate limit exceeded (HTTP 429). Please wait and retry.")
-        if status_code >= 400:
-            raise LLMProviderError(f"LLM endpoint returned HTTP {status_code}.")
+            status_code = getattr(resp, "status_code", 200)
+            if status_code == 401:
+                raise LLMProviderError("LLM authentication failed (HTTP 401). Please verify your API key.")
+            if status_code == 429:
+                if retry_attempt == 0:
+                    time.sleep(2.5)
+                    continue
+                raise LLMProviderError("LLM rate limit exceeded (HTTP 429). Please wait and retry.")
+            if status_code >= 400:
+                raise LLMProviderError(f"LLM endpoint returned HTTP {status_code}.")
 
-        try:
-            data = resp.json()
-            return str(data["choices"][0]["message"]["content"])
-        except Exception as exc:
-            raise LLMProviderError(f"Unexpected response structure from LLM endpoint: {exc}") from exc
+            try:
+                data = resp.json()
+                return str(data["choices"][0]["message"]["content"])
+            except Exception as exc:
+                raise LLMProviderError(f"Unexpected response structure from LLM endpoint: {exc}") from exc
