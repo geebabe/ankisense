@@ -1245,3 +1245,7 @@ class VocabImporterDialog(QDialog):
         )
         QMessageBox.information(self, "Import Complete", "\n".join(report_lines))
 
+        # Close the dialog if cards were successfully imported or processed
+        if summary.created_count > 0 or summary.updated_count > 0 or summary.skipped_count > 0:
+            self.accept()
+
